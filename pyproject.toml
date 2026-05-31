@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wx-accessible-webview"
+version = "0.1.0"
+description = "An accessible wx.html2.WebView wrapper for wxPython that reads correctly in NVDA and JAWS."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Taylor Arndt", email = "taylor@techopolisonline.com" },
+  { name = "Community Access" },
+]
+maintainers = [
+  { name = "Taylor Arndt", email = "taylor@techopolisonline.com" },
+]
+keywords = [
+  "wxpython", "wxwidgets", "webview", "webview2", "accessibility", "a11y",
+  "screen-reader", "nvda", "jaws", "aria",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Adaptive Technologies",
+  "Topic :: Software Development :: User Interfaces",
+  "Intended Audience :: Developers",
+]
+dependencies = [
+  "wxPython>=4.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Community-Access/wx-accessible-webview"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wx_accessible_webview"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
