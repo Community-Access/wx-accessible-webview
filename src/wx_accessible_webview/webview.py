@@ -1,4 +1,4 @@
-"""An accessible wrapper around ``wx.html2.WebView``.
+"""Embeddable accessible ``wx.html2.WebView`` surfaces.
 
 ``wx.html2.WebView`` is a factory-created native control (Edge **WebView2** on
 Windows, WKWebView on macOS, WebKitGTK on Linux). Because it's native and
@@ -6,58 +6,42 @@ factory-built it can't be meaningfully subclassed to "make it accessible" — an
 embedded in a wxPython app it has historically read inconsistently in NVDA and
 often not at all in **JAWS**.
 
-The trick this wrapper uses: a WebView's accessibility is driven by the **HTML
-you render into it**, not by the wx widget. So instead of fighting the control,
-it renders a semantic, screen-reader-friendly document — and the screen reader
+The trick: a WebView's accessibility is driven by the **HTML you render into
+it**, not by the wx widget. So instead of fighting the control, these surfaces
+render a semantic, screen-reader-friendly document — and the screen reader
 follows it like any web page (verified in **NVDA *and* JAWS**).
 
-What you get:
-  * a semantic page: ``lang``, viewport, readable + high-contrast/forced-colors CSS;
-  * an optional **ARIA live region** (``role="log" aria-live="polite"``) so
-    appended content is announced automatically;
-  * an assertive ``role="status"`` region for transient announcements;
-  * a **JS->Python bridge** (``window.<name>.post(obj)``) so the page can send
-    events back to Python;
-  * optional **Escape-to-close** bridged out of the native control (which
-    swallows the key);
-  * focus management into the content;
-  * a graceful **read-only text fallback** when no WebView backend is available.
+This module provides the two *embeddable* surfaces:
+
+* :class:`AccessibleWebView` — a general content view with an optional ARIA live
+  region, a status region, a JS->Python bridge, optional Escape/F6 key bridges,
+  optional "open links in the system browser", focus management, and a text
+  fallback when no WebView backend exists.
+* :class:`SidePreview` — a live preview pane (e.g. beside an editor) whose
+  :meth:`SidePreview.update` swaps the body in place so scroll position and
+  screen-reader position survive each re-render.
+
+Modal dialogs live in :mod:`wx_accessible_webview.dialog`; the chat surface with
+an in-page composer lives in :mod:`wx_accessible_webview.chat`.
 
 This is a generalized extraction of the wrapper built for Quill (the
-screen-reader-first editor by BITS / Community Access).
+screen-reader-first editor, a Community Access project).
 """
+
 from __future__ import annotations
 
-import html
 import json
 
-_DEFAULT_STYLES = """
-  :root { color-scheme: light dark; }
-  html, body { margin: 0; padding: 0; }
-  body { font-family: system-ui, Segoe UI, Arial, sans-serif; font-size: 1.05rem;
-         line-height: 1.6; padding: 12px 16px; }
-  h1, h2, h3, h4, h5, h6 { scroll-margin-top: 1.5rem; }
-  article { margin: 0 0 14px 0; padding: 10px 12px; border-radius: 8px;
-            border: 1px solid GrayText; }
-  pre { background: Field; padding: 10px; border-radius: 8px; overflow-x: auto;
-        white-space: pre-wrap; word-break: break-word; }
-  code { font-family: ui-monospace, Consolas, monospace; }
-  blockquote { border-left: 4px solid GrayText; padding-left: 1rem; }
-  table { border-collapse: collapse; }
-  th, td { border: 1px solid GrayText; padding: 0.4rem 0.6rem; }
-  a { color: LinkText; }
-  :focus { outline: 2px solid Highlight; outline-offset: 2px; }
-  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden;
-                     clip: rect(0 0 0 0); white-space: nowrap; }
-  @media (forced-colors: active) {
-    article, th, td { border: 1px solid CanvasText; }
-    blockquote { border-left-color: CanvasText; }
-  }
-"""
+from wx_accessible_webview._common import (
+    DEFAULT_STYLES,
+    document,
+    key_bridge_js,
+    strip_tags,
+)
 
 
 class AccessibleWebView:
-    """An accessible ``wx.html2.WebView`` wrapper.
+    """An accessible, embeddable ``wx.html2.WebView`` wrapper.
 
     Parameters
     ----------
@@ -71,16 +55,26 @@ class AccessibleWebView:
         If True (default) the content area is an ARIA live region, so calls to
         :meth:`append` are announced automatically.
     handler_name:
-        Name of the JS bridge object (``window.<handler_name>.post(obj)``).
+        Name of the JS bridge object (``window.<handler_name>.postMessage(...)``).
     on_message:
         Callback ``on_message(data: dict)`` for messages posted from the page.
     on_close:
-        Callback invoked when the page asks to close (see ``escape_to_close``).
+        Callback invoked when the page asks to close (requires ``escape_to_close``).
+    on_return:
+        Callback invoked when the user presses Escape **or F6** to hand focus
+        back (e.g. from a side preview to the editor). When set, this takes the
+        place of ``escape_to_close``'s Escape handling.
     escape_to_close:
         If True, pressing Escape inside the WebView calls ``on_close`` (the key
         is bridged out of the native control, which otherwise swallows it).
+    open_links_externally:
+        If True, clicking an ``http(s)`` link opens it in the system browser
+        instead of navigating the embedded view. Guarded so it never interferes
+        with the initial render.
     initial_html:
-        Optional HTML to bake into the first page (avoids an empty->rendered flash).
+        Optional HTML baked into the first page (avoids an empty->rendered flash).
+    styles:
+        CSS for the document ``<style>`` block.
     """
 
     def __init__(
@@ -93,9 +87,11 @@ class AccessibleWebView:
         handler_name: str = "awv",
         on_message=None,
         on_close=None,
+        on_return=None,
         escape_to_close: bool = False,
+        open_links_externally: bool = False,
         initial_html: str = "",
-        styles: str = _DEFAULT_STYLES,
+        styles: str = DEFAULT_STYLES,
     ) -> None:
         import wx
 
@@ -111,7 +107,9 @@ class AccessibleWebView:
         self._handler_name = handler_name
         self._on_message = on_message
         self._on_close = on_close
+        self._on_return = on_return
         self._escape_to_close = escape_to_close
+        self._open_links_externally = open_links_externally
         self._styles = styles
 
         try:
@@ -121,12 +119,12 @@ class AccessibleWebView:
             self.view.SetName(title)
             try:
                 self.view.AddScriptMessageHandler(handler_name)
-                self.view.Bind(
-                    webview.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, self._on_script_message
-                )
+                self.view.Bind(webview.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, self._on_script_message)
             except Exception:  # noqa: BLE001
                 pass  # older backend: no bridge, but content still renders
             self.view.Bind(webview.EVT_WEBVIEW_LOADED, self._on_loaded)
+            if open_links_externally:
+                self.view.Bind(webview.EVT_WEBVIEW_NAVIGATING, self._on_navigating)
             self.view.SetPage(self._skeleton(initial_html), "")
         except Exception:  # noqa: BLE001
             # No WebView backend: degrade to a read-only text control.
@@ -169,6 +167,15 @@ class AccessibleWebView:
             return
         self._do("status", text)
 
+    def clear(self) -> None:
+        """Reset to an empty document (re-renders the skeleton)."""
+        if self.fallback is not None:
+            self.fallback.SetValue("")
+            return
+        self._ready = False
+        self._pending = []
+        self.view.SetPage(self._skeleton(""), "")
+
     def focus(self) -> None:
         """Move focus into the content area."""
         if self.fallback is not None:
@@ -210,14 +217,28 @@ class AccessibleWebView:
             self.view.SetFocus()
             self._run("window.__awv.focus();")
 
+    def _on_navigating(self, event: object) -> None:
+        url = event.GetURL() or ""
+        # Only divert real link clicks after load; never the initial page load.
+        if self._ready and url.startswith(("http://", "https://")):
+            event.Veto()
+            import webbrowser
+
+            webbrowser.open(url)
+
     def _on_script_message(self, event: object) -> None:
         try:
             data = json.loads(event.GetString())
         except Exception:  # noqa: BLE001
             return
-        if data.get("type") == "__close":
+        kind = data.get("type")
+        if kind == "__close":
             if self._on_close is not None:
                 self._on_close()
+            return
+        if kind == "__return":
+            if self._on_return is not None:
+                self._on_return()
             return
         if self._on_message is not None:
             self._on_message(data)
@@ -228,55 +249,98 @@ class AccessibleWebView:
         except Exception:  # noqa: BLE001
             pass
 
+    def _bridge_keys(self) -> dict[str, str]:
+        keys: dict[str, str] = {}
+        if self._on_return is not None:
+            keys["Escape"] = "__return"
+            keys["F6"] = "__return"
+        elif self._escape_to_close:
+            keys["Escape"] = "__close"
+        return keys
+
     def _skeleton(self, initial_html: str) -> str:
-        title = html.escape(self._title)
+        import html as _html
+
         role = 'role="log" aria-live="polite"' if self._live_region else 'role="region"'
-        escape_js = ""
-        if self._escape_to_close:
-            escape_js = (
-                "document.addEventListener('keydown',function(e){"
-                "if(e.key==='Escape'){e.preventDefault();"
-                f"if(window.{self._handler_name}&&window.{self._handler_name}.postMessage)"
-                f"{{window.{self._handler_name}.postMessage(JSON.stringify({{type:'__close'}}));}}"
-                "}});"
-            )
-        return f"""<!DOCTYPE html>
-<html lang="{html.escape(self._lang)}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
-<style>{self._styles}</style>
-</head>
-<body>
-<div id="awv-status" role="status" aria-live="assertive" class="visually-hidden"></div>
-<main id="content" {role} aria-label="{title}" tabindex="0">
-{initial_html}
-</main>
-<script>
-  (function() {{
-    var content = document.getElementById('content');
-    var statusEl = document.getElementById('awv-status');
-    window.__awv = {{
-      append: function(htmlFragment) {{
-        var tmp = document.createElement('div');
-        tmp.innerHTML = htmlFragment;
-        while (tmp.firstChild) {{ content.appendChild(tmp.firstChild); }}
-        content.scrollTop = content.scrollHeight;
-      }},
-      set: function(htmlBody) {{ content.innerHTML = htmlBody; }},
-      status: function(text) {{ if (statusEl) {{ statusEl.textContent = text; }} }},
-      focus: function() {{ content.focus(); }}
-    }};
-    {escape_js}
-  }})();
-</script>
-</body>
-</html>"""
+        title = _html.escape(self._title)
+        body = (
+            '<div id="awv-status" role="status" aria-live="assertive" '
+            'class="visually-hidden"></div>'
+            f'<main id="content" {role} aria-label="{title}" tabindex="0">'
+            f"\n{initial_html}\n</main>"
+        )
+        scripts = (
+            "(function(){"
+            "var content=document.getElementById('content');"
+            "var statusEl=document.getElementById('awv-status');"
+            "window.__awv={"
+            "append:function(h){var t=document.createElement('div');t.innerHTML=h;"
+            "while(t.firstChild){content.appendChild(t.firstChild);}"
+            "content.scrollTop=content.scrollHeight;},"
+            "set:function(h){content.innerHTML=h;},"
+            "status:function(s){if(statusEl){statusEl.textContent=s;}},"
+            "focus:function(){content.focus();}"
+            "};"
+            f"{key_bridge_js(self._handler_name, self._bridge_keys())}"
+            "})();"
+        )
+        return document(
+            title=self._title,
+            lang=self._lang,
+            styles=self._styles,
+            body=body,
+            scripts=scripts,
+        )
 
 
-def strip_tags(markup: str) -> str:
-    """Best-effort HTML->text for the no-WebView fallback."""
-    import re
+class SidePreview:
+    """A live preview pane — e.g. shown to the right of an editor in a splitter.
 
-    return html.unescape(re.sub(r"<[^>]+>", "", markup or ""))
+    :meth:`update` replaces the rendered body in place (via ``innerHTML``) so
+    scroll position is preserved while the user types, rather than reloading the
+    whole page each keystroke. Pressing Escape or F6 inside the pane fires
+    ``on_return`` (hand focus back to the editor). Falls back to a read-only text
+    control where no WebView backend exists.
+
+    You render Markdown/HTML yourself and pass the resulting HTML to
+    :meth:`update`; this stays dependency-light (wxPython only).
+    """
+
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str = "Preview",
+        lang: str = "en",
+        on_return=None,
+        handler_name: str = "awv",
+        open_links_externally: bool = True,
+        styles: str = DEFAULT_STYLES,
+    ) -> None:
+        # A SidePreview is an AccessibleWebView with no live region (it's a
+        # rendered document, not a log) and a return bridge for Escape/F6.
+        self._view = AccessibleWebView(
+            parent,
+            title=title,
+            lang=lang,
+            live_region=False,
+            handler_name=handler_name,
+            on_return=on_return,
+            open_links_externally=open_links_externally,
+            styles=styles,
+        )
+
+    @property
+    def control(self):
+        return self._view.control
+
+    @property
+    def using_webview(self) -> bool:
+        return self._view.using_webview
+
+    def update(self, body_html: str) -> None:
+        """Replace the preview body in place."""
+        self._view.set_content(body_html)
+
+    def focus(self) -> None:
+        self._view.focus()

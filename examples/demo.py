@@ -4,6 +4,7 @@ Run:  python examples/demo.py
 A small window with an accessible WebView; type in the box and press Enter to
 append an announced "message". Escape closes. Try it with NVDA or JAWS.
 """
+
 from __future__ import annotations
 
 import html

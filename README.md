@@ -1,7 +1,17 @@
 # wx-accessible-webview
 
-An accessible wrapper around **`wx.html2.WebView`** for wxPython that renders web
-content screen readers can actually read — verified in **NVDA *and* JAWS**.
+Accessible **`wx.html2.WebView`** surfaces for wxPython — render web content
+screen readers can actually read, verified in **NVDA *and* JAWS**.
+
+One small toolkit covering every WebView surface a real app needs:
+
+- **`AccessibleWebView`** — an embeddable content view (live region, status, JS
+  bridge, Escape/F6 key bridges, open-links-in-browser, text fallback);
+- **`SidePreview`** — a live preview pane that updates in place as you type;
+- **`AccessibleHtmlDialog`** — a modal dialog with an HTML body and real wx
+  buttons (plus `show_message` / `confirm` helpers);
+- **`AccessibleChatView`** — a chat surface with an in-page composer and
+  suggestion chips.
 
 ## The problem
 
@@ -73,14 +83,51 @@ dependency-light (just wxPython) and leaves rendering choices to you.
 
 ## API
 
-- `AccessibleWebView(parent, *, title, lang="en", live_region=True, handler_name="awv", on_message=None, on_close=None, escape_to_close=False, initial_html="", styles=...)`
+### `AccessibleWebView` — embeddable content view
+`AccessibleWebView(parent, *, title, lang="en", live_region=True, handler_name="awv", on_message=None, on_close=None, on_return=None, escape_to_close=False, open_links_externally=False, initial_html="", styles=...)`
+
 - `.control` — the underlying wx control (WebView, or the text fallback).
 - `.using_webview` — `True` if a real WebView backend is in use.
 - `.append(html_fragment)` — append HTML to the content area (announced if `live_region`).
 - `.set_content(html_body)` — replace the content area.
 - `.status(text)` — announce transient status (assertive region).
+- `.clear()` — reset to an empty document.
 - `.focus()` — move focus into the content.
 - `.run_js(script)` — run arbitrary JS in the page.
+
+`on_return` (Escape **or F6**) is handy for handing focus back from a preview
+pane to an editor; `open_links_externally` opens `http(s)` links in the system
+browser instead of navigating the embedded view.
+
+### `SidePreview` — live preview pane
+`SidePreview(parent, *, title="Preview", lang="en", on_return=None, open_links_externally=True, styles=...)`
+
+- `.update(body_html)` — replace the body in place (scroll/SR position preserved).
+- `.control`, `.focus()`.
+
+### `AccessibleHtmlDialog` — modal dialog
+`AccessibleHtmlDialog(parent, title, body_html, buttons=None, *, size=(640, 560), open_links_externally=True, lang="en", styles=...)`
+
+- `buttons` — list of `(label, return_id)`; the last is the default. Defaults to a single **Close** button.
+- `.show_modal() -> int` — returns the chosen button id (or `wx.ID_CANCEL` on Escape/close).
+- Helpers: `show_message(parent, title, body_html, ...)` (one button) and
+  `confirm(parent, title, body_html, ...) -> bool` (OK/Cancel).
+
+### `AccessibleChatView` — chat surface
+`AccessibleChatView(parent, *, title="Conversation", intro=None, suggestions=(), placeholder=..., composer_label=..., send_label="Send", on_send=None, on_close=None, lang="en")`
+
+- `.append_message(speaker, body_html)` — add a turn (announced via live region).
+- `.status(text)`, `.hide_suggestions()`, `.set_input_enabled(enabled)`, `.focus()`, `.clear()`.
+
+The transcript, suggestion chips, **and** the message edit field all live inside
+one accessible page; Enter sends, Shift+Enter inserts a newline, suggestions hide
+after the first message (like Apple Intelligence).
+
+### Examples
+
+- `examples/demo.py` — the minimal content view.
+- `examples/showcase.py` — content view + `AccessibleHtmlDialog` + `confirm`.
+- `examples/markdown_chat.py` — a full `AccessibleChatView` Markdown chat.
 
 ## Born out of Quill
 

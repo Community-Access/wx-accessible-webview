@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wx-accessible-webview"
-version = "0.1.0"
-description = "An accessible wx.html2.WebView wrapper for wxPython that reads correctly in NVDA and JAWS."
+version = "0.2.0"
+description = "Accessible wx.html2.WebView surfaces for wxPython (content view, modal dialog, live preview, chat) that read correctly in NVDA and JAWS."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -30,6 +30,12 @@ classifiers = [
 ]
 dependencies = [
   "wxPython>=4.2.0",
+]
+
+[project.optional-dependencies]
+# Demo-only — keeps the core dependency-light. `pip install ".[examples]"`.
+examples = [
+  "markdown>=3.5",
 ]
 
 [project.urls]
