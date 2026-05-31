@@ -82,11 +82,30 @@ dependency-light (just wxPython) and leaves rendering choices to you.
 - `.focus()` — move focus into the content.
 - `.run_js(script)` — run arbitrary JS in the page.
 
+## Born out of Quill
+
+This came out of building **Quill** — the screen-reader-first writing and
+document environment (a Community Access project).
+
+Accessible embedded web content in wxPython is a problem people had been
+chipping at for **years**. The usual experience: it'd *sometimes* read in NVDA,
+and **basically never in JAWS** — JAWS just wouldn't treat the embedded WebView
+as a real web document. It had eaten a lot of hours across a lot of attempts.
+
+Quill needed it badly — the AI chat emits Markdown (headings, lists, code), so it
+wanted real HTML, which meant the WebView, which meant the wall. Rather than keep
+fighting the native control, the breakthrough was to stop trying to "fix" the
+widget and instead drive accessibility entirely through the **HTML/ARIA rendered
+into it** — and that finally read correctly in **NVDA *and* JAWS**.
+
+So after a lot of tries, we got it working. This library is that solution, broken
+out so the whole wxPython community can use it. In Quill it now powers the AI
+chat, the Markdown/HTML preview, the About dialog, and the update dialogs.
+
 ## Created by
 
-Made by **Taylor Arndt** — it came out of building Quill, which needed an
-accessible WebView and there wasn't a good one for wxPython. It's a **Community
-Access** open-source project, and it's built to be contributed to.
+Made by **Taylor Arndt**, a **Community Access** open-source project — built to be
+contributed to.
 
 ## Contributing
 
