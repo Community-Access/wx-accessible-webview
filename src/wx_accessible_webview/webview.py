@@ -259,14 +259,14 @@ class AccessibleWebView:
         return keys
 
     def _skeleton(self, initial_html: str) -> str:
-        import html as _html
-
-        role = 'role="log" aria-live="polite"' if self._live_region else 'role="region"'
-        title = _html.escape(self._title)
+        # No landmark role / aria-label: don't announce a "region" — the reader
+        # navigates by heading. ``aria-live`` (without role="log") still
+        # announces appended content when this is a live region.
+        live = ' aria-live="polite"' if self._live_region else ""
         body = (
             '<div id="awv-status" role="status" aria-live="assertive" '
             'class="visually-hidden"></div>'
-            f'<main id="content" {role} aria-label="{title}" tabindex="0">'
+            f'<main id="content"{live} tabindex="0">'
             f"\n{initial_html}\n</main>"
         )
         scripts = (

@@ -154,13 +154,15 @@ class AccessibleChatView:
         return f'<div id="suggestions" role="group" aria-label="Suggestions">{buttons}</div>'
 
     def _skeleton(self, intro_html: str = "") -> str:
-        title = html.escape(self._title)
         ph = html.escape(self._placeholder)
         clabel = html.escape(self._composer_label)
         send = html.escape(self._send_label)
+        # No landmark role / aria-label on the transcript: don't announce a
+        # "region". ``aria-live`` still announces new turns; the reader moves by
+        # heading (each turn is an <article> with a speaker <h2>).
         body = (
             '<div id="status" role="status" aria-live="assertive" class="visually-hidden"></div>'
-            f'<main id="log" role="log" aria-live="polite" aria-label="{title}" tabindex="0">'
+            '<main id="log" aria-live="polite" tabindex="0">'
             f"\n{intro_html}\n</main>"
             f"{self._suggestions_html()}"
             '<form id="composer" autocomplete="off">'
